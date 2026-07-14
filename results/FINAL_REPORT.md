@@ -29,7 +29,7 @@ experiments (`results/RESULTS.md`), all backtests tick-replayed with honest fill
 | train | 2026-02-12 → 04-15 | +5.59¢ | 93.9% | 7.5 |
 | validation | 2026-04-16 → 04-30 | +2.47¢ | 91.2% | 7.5 |
 | **test (untouched)** | 2026-05-01→05-12 + 07-06/07 | **+3.57¢** | **91.6%** | 9.4 |
-| July holdout (Telonex, never touched) | 2026-07-08 → 07-14 | see addendum | | |
+| **July holdout (Telonex, never touched)** | 2026-07-08 → 07-13 | **+3.66¢** | **91.9%** | 10.3 |
 
 - Positive **every month** Feb→Jul (worst single split-month +2.4¢; test-July subset +5.8¢).
 - Latency-proof: identical EV at 500ms and 2000ms reaction. Not a race.
@@ -53,9 +53,9 @@ experiments (`results/RESULTS.md`), all backtests tick-replayed with honest fill
 3. Cancel at `wts+90s` if unfilled (≈9% of signals). Optional taker fallback (still +1.0¢ EV, pays ~0.6¢ fee).
 4. Hold to resolution; redeem. No sell leg, no fee, no race.
 
-### #2 — Early-Favorite Continuation, taker entry ("EFC-T") — viable, weaker
+### #2 — Early-Favorite Continuation, taker entry ("EFC-T") — fallback only
 
-Same signal; cross the spread at open+60s instead of resting. Train +3.84¢ → val +1.48¢ → test **+1.01¢/share** after the 0.07 taker fee (~0.6¢ at p≈0.90). Win 91.2% on test. Use only as fallback for unfilled maker orders or when latency to place resting orders is unavailable. Capacity to ~$50; dead at $200.
+Same signal; cross the spread at open+60s instead of resting. Train +3.84¢ → val +1.48¢ → test +1.01¢ but **July holdout −1.33¢** (BBO-only cost model on holdout data). The taker fee + spread consume the edge in the current regime. Use strictly as an occasional fallback for unfilled maker orders (≈9% of signals), or skip unfilled signals entirely.
 
 ### Not ranked — rejected at validation
 - 1h analogue (open+720s favorite): train +4.09¢ but **val −5.03¢** → rejected.

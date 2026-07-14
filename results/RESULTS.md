@@ -53,3 +53,6 @@ All rows TRAIN split unless marked. Nothing here has touched test data.
 | 46 | Capacity of maker variant | 5m | train | median $3.5k qualifying flow/window beyond queue; $100 clip fills fully in 87% of signals; taker path decays at $200 (+0.38c) | practical clip $50-100 |
 | 47 | Bankroll sim, TEST trades, $5/clip reinvested | 5m | test | $100 → $128.21 in 14 days (+28.2%), maxDD −21%, 71% days positive | loss tail = −88c/share on 8.4% of trades |
 | 48 | Maker-rebate pool estimate | 5m/15m | all | ≈$48k/day (5m) + $10k/day (15m) rebate pool | context: the pro game is MM+rebates; out of scope for $100 bot |
+| 49 | Fill-model paranoia on TEST maker: queue×2 / below-price-only | 5m | test | +3.47c / +2.66c (vs +3.57 base) | edge survives most conservative fill assumptions |
+| 50 | **JULY HOLDOUT (Telonex 07-08→07-13, never touched): maker** | 5m | holdout | **+3.66c/sh, win 91.9%, n=62, 10.3/day** | **CONFIRMED — 4th independent period positive** |
+| 51 | JULY HOLDOUT: taker | 5m | holdout | −1.33c/sh (n=69, win 88.4%; BBO-only cost model) | taker variant demoted to fallback-only |

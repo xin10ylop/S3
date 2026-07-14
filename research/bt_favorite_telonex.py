@@ -24,7 +24,12 @@ def run_day(date):
     if not qf.exists():
         return []
     q_all = pd.read_parquet(qf).sort_values(["wts", "timestamp_us"]).reset_index(drop=True)
+    for c in ["bid_price", "bid_size", "ask_price", "ask_size"]:
+        q_all[c] = pd.to_numeric(q_all[c], errors="coerce").astype("float64")
     t_all = pd.read_parquet(tf).sort_values(["wts", "timestamp_us"]).reset_index(drop=True) if tf.exists() else None
+    if t_all is not None:
+        for c in ["price", "size"]:
+            t_all[c] = pd.to_numeric(t_all[c], errors="coerce").astype("float64")
     out = []
     for w in wins.itertuples():
         wts = int(w.wts)
@@ -85,7 +90,7 @@ def main():
     df = pd.DataFrame(rows)
     df.to_parquet(pathlib.Path(__file__).resolve().parent.parent / "results/trades_favorite_5m_JULY_HOLDOUT.parquet", index=False)
     for style in ["taker", "maker"]:
-        s = df[df.style == style]
+        s = df[df["style"] == style]
         if len(s):
             print(f"JULY HOLDOUT {style}: n={len(s)} win={s.win.mean():.4f} EV={s.pnl.mean()*100:+.2f}c/sh "
                   f"trades/day={len(s)/len(dates):.1f}")
