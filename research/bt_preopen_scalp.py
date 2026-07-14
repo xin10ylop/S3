@@ -24,8 +24,23 @@ warnings.filterwarnings("ignore")
 DUR = {"5m": 300, "15m": 900, "1h": 3600, "4h": 14400}
 
 
-def pick_side(sider, q_slice, t_slice, place_ts, prev_outcome):
+def pick_side(sider, q_slice, t_slice, place_ts, prev_outcome, ml_p=None, ml_margin=0.0):
     """Return 'up', 'dn', 'both', or None using only info available at place_ts."""
+    if sider == "ml":
+        if ml_p is None or not np.isfinite(ml_p):
+            return None
+        qts = q_slice.timestamp_us.values
+        i = np.searchsorted(qts, place_ts, "right") - 1
+        if i < 0:
+            return None
+        row = q_slice.iloc[i]
+        if not (np.isfinite(row.bid_price) and np.isfinite(row.ask_price)):
+            return None
+        if ml_p >= 0.5:
+            entry_ref = row.bid_price
+            return "up" if ml_p - entry_ref >= ml_margin else None
+        entry_ref = 1.0 - row.ask_price
+        return "dn" if (1 - ml_p) - entry_ref >= ml_margin else None
     if sider == "both":
         return "both"
     if sider in ("mid", "anti_mid"):
@@ -64,13 +79,18 @@ def pick_side(sider, q_slice, t_slice, place_ts, prev_outcome):
 
 def run_day(args):
     (family, date, sider, entry, target, place_lead, buy_abort, exit_abort,
-     notional, hold_if_no_exit) = args
+     notional, hold_if_no_exit, ml_margin) = args
     dur = DUR[family]
     wins = pd.read_parquet(ROOT / "master/windows_all.parquet")
     wins = wins[(wins.family == family) & (wins.date == date) & (wins.up_won >= 0)]
     wins = wins.sort_values("wts")
     if not len(wins):
         return []
+    ml_map = {}
+    if sider == "ml":
+        mlf = ROOT / f"master/ml_side_{family}.parquet"
+        ml = pd.read_parquet(mlf)
+        ml_map = dict(zip(ml.wts.values, ml.p_hat.values))
     day = DayData(family, date)
     prev_map = dict(zip(wins.wts.values[1:], wins.up_won.values[:-1]))
     out = []
@@ -82,21 +102,35 @@ def run_day(args):
         if q is None or not len(q):
             continue
         prev = prev_map.get(w.wts)
-        side = pick_side(sider, q, t, place_ts, prev)
+        side = pick_side(sider, q, t, place_ts, prev, ml_map.get(wts), ml_margin)
         if side is None:
             continue
         sides = ["up", "dn"] if side == "both" else [side]
         for s in sides:
-            shares = notional / entry
-            filled, fts = maker_fill(t, q, place_ts, s, entry, shares,
+            entry_px = entry
+            if sider == "ml":  # join the favored side's current bid
+                qts = q.timestamp_us.values
+                i = np.searchsorted(qts, place_ts, "right") - 1
+                row = q.iloc[i]
+                entry_px = row.bid_price if s == "up" else 1.0 - row.ask_price
+                if not np.isfinite(entry_px) or entry_px <= 0.02:
+                    continue
+            shares = notional / entry_px
+            filled, fts = maker_fill(t, q, place_ts, s, entry_px, shares,
                                      open_us + int(buy_abort * 1e6))
             if filled < shares - 1e-9:
                 continue
             win = (w.up_won == 1) if s == "up" else (w.up_won == 0)
+            if target is None or target <= 0:
+                pnl = (1.0 - entry_px) if win else (0.0 - entry_px)
+                res = "held_settle"
+                out.append(dict(date=date, wts=wts, side=s, entry=entry_px, res=res,
+                                win=bool(win), pnl=float(pnl), fill_ts_rel=(fts - open_us) / 1e6))
+                continue
             sf, sts = maker_fill(t, q, fts, "dn" if s == "up" else "up",
                                  1.0 - target, shares, open_us + int(exit_abort * 1e6))
             if sf >= shares - 1e-9:
-                pnl = (target - entry)
+                pnl = (target - entry_px)
                 res = "target"
             else:
                 ex_ts = open_us + int(exit_abort * 1e6)
@@ -104,14 +138,14 @@ def run_day(args):
                 if ok and np.isfinite(px):
                     sell_px = 1.0 - px
                     fee = taker_fee(sell_px, w.fee_rate)
-                    pnl = sell_px - entry - fee
+                    pnl = sell_px - entry_px - fee
                     res = "abort_taker"
                 elif hold_if_no_exit:
-                    pnl = (1.0 - entry) if win else (0.0 - entry)
+                    pnl = (1.0 - entry_px) if win else (0.0 - entry_px)
                     res = "held_settle"
                 else:
                     continue
-            out.append(dict(date=date, wts=wts, side=s, entry=entry, res=res,
+            out.append(dict(date=date, wts=wts, side=s, entry=entry_px, res=res,
                             win=bool(win), pnl=float(pnl), fill_ts_rel=(fts - open_us) / 1e6))
     return out
 
@@ -121,9 +155,10 @@ def main():
     ap.add_argument("family")
     ap.add_argument("split", choices=["train", "val", "test"])
     ap.add_argument("--sider", default="mid",
-                    choices=["mid", "anti_mid", "flow", "prev_rev", "both"])
+                    choices=["mid", "anti_mid", "flow", "prev_rev", "both", "ml"])
+    ap.add_argument("--ml_margin", type=float, default=0.02)
     ap.add_argument("--entry", type=float, default=0.51)
-    ap.add_argument("--target", type=float, default=0.55)
+    ap.add_argument("--target", type=float, default=0.55)  # <=0 means hold to settlement
     ap.add_argument("--place_lead", type=float, default=10)
     ap.add_argument("--buy_abort", type=float, default=0)
     ap.add_argument("--exit_abort", type=float, default=60)
@@ -134,7 +169,7 @@ def main():
     dates = sorted(p.stem for p in (DAILY / a.family / "quotes").glob("*.parquet"))
     dates = [d for d in dates if split_of(a.family, d) == a.split]
     jobs = [(a.family, d, a.sider, a.entry, a.target, a.place_lead, a.buy_abort,
-             a.exit_abort, a.notional, a.hold) for d in dates]
+             a.exit_abort, a.notional, a.hold, a.ml_margin) for d in dates]
     rows = []
     with ProcessPoolExecutor(max_workers=3) as ex:
         for r in ex.map(run_day, jobs):
