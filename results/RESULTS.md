@@ -43,3 +43,13 @@ All rows TRAIN split unless marked. Nothing here has touched test data.
 | 36 | 1h close−120 favorite (0.80-0.97) | 1h | train | +0.43c, months alternate sign | DEAD |
 | 37 | VAL GATE: 5m o60 favorite (locked config) | 5m | **val** | **+1.48c/sh, win 92.3%, n=155, 10.3/day** | **SURVIVES VALIDATION** |
 | 38 | VAL GATE: 1h o720 favorite (locked config) | 1h | **val** | −5.03c (n=54; Mar −15c) | FAILS validation — rejected |
+| 39 | H22 cross-market partial-order arb (5m vs 15m, same close) | 5m/15m | train(Apr) | violations ~1% of ticks, ~2c gross, needs 2 taker legs + racing | real arb, unprofitable at our scale — bots welcome to it |
+| 40 | Model-market divergence buyer (pm≥0.90/0.95, gap 8-10c) | 5m | train | −1.61c / −0.95c, win 74% vs claimed 90%+ | DEAD — market beats model everywhere; confirms edge #32 is the market's own bias, not model superiority |
+| 41 | Maker-entry variant of #32 (rest at fav bid o60→o90, hold) | 5m | train | **+5.59c/sh, win 93.9%, 7.5 fills/day, all months + (4.9/7.9/3.5)** — win-given-fill does NOT collapse (profit-taker flow, not informed) | CANDIDATE #1-M |
+| 42 | VAL GATE: maker variant | 5m | **val** | **+2.47c/sh, win 91.2%, n=113** | SURVIVES |
+| 43 | **TEST GATE (untouched): taker o60 b85** | 5m | **test** | +1.01c/sh (n=148, win 91.2%; May +1.63, Jul −1.67 n=28) | survives, weak |
+| 44 | **TEST GATE (untouched): maker o60 b85** | 5m | **test** | **+3.57c/sh (n=131, win 91.6%; May +3.17, Jul +5.80)** | **FOUND — survives untouched test** |
+| 45 | Weekend slice of #32 | 5m | train | weekday +3.4c / weekend +5.4c | no skip needed; weekends better (thinner MM coverage) |
+| 46 | Capacity of maker variant | 5m | train | median $3.5k qualifying flow/window beyond queue; $100 clip fills fully in 87% of signals; taker path decays at $200 (+0.38c) | practical clip $50-100 |
+| 47 | Bankroll sim, TEST trades, $5/clip reinvested | 5m | test | $100 → $128.21 in 14 days (+28.2%), maxDD −21%, 71% days positive | loss tail = −88c/share on 8.4% of trades |
+| 48 | Maker-rebate pool estimate | 5m/15m | all | ≈$48k/day (5m) + $10k/day (15m) rebate pool | context: the pro game is MM+rebates; out of scope for $100 bot |
