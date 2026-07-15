@@ -56,3 +56,5 @@ All rows TRAIN split unless marked. Nothing here has touched test data.
 | 49 | Fill-model paranoia on TEST maker: queue×2 / below-price-only | 5m | test | +3.47c / +2.66c (vs +3.57 base) | edge survives most conservative fill assumptions |
 | 50 | **JULY HOLDOUT (Telonex 07-08→07-13, never touched): maker** | 5m | holdout | **+3.66c/sh, win 91.9%, n=62, 10.3/day** | **CONFIRMED — 4th independent period positive** |
 | 51 | JULY HOLDOUT: taker | 5m | holdout | −1.33c/sh (n=69, win 88.4%; BBO-only cost model) | taker variant demoted to fallback-only |
+| 52 | EV-vs-size tape replay ($5→$3000 clips, partial fills) | 5m | train+test | EV/sh decays 5.13→3.95c; $/day grows to $820 at $3k; full-fill 92%→53% | in-model capacity huge; own-impact unmodeled → operate $50-100, scale on live telemetry |
+| 53 | Live executability probe (gamma/clob/data-api) | 5m | live | min order 5 sh, tick 0.01, GTC ok, orders 24h ahead, ties→Up, public book+tape, rewards program on these markets | EXECUTABLE; maker-fee $0 to verify on first live fill |

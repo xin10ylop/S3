@@ -248,6 +248,11 @@ class LiveExecutor:
         self.client.set_api_creds(self.client.create_or_derive_api_creds())
         self.journal = journal
         self.feed = feed
+        try:
+            self.client.cancel_all()   # clear any orphaned resting orders from a prior run
+            journal.write({"type": "cancel_all_on_start", "mode": "live"})
+        except Exception as e:
+            log.warning("cancel_all on start failed: %s", e)
         self._hb_stop = threading.Event()
         threading.Thread(target=self._heartbeat, daemon=True).start()
 
