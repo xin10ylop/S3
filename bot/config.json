@@ -1,0 +1,22 @@
+{
+  "mode": "paper",
+  "data_dir": "/opt/efc-bot/data",
+
+  "band_lo": 0.85,
+  "band_hi": 0.97,
+  "t_signal": 60.0,
+  "t_cancel": 90.0,
+  "max_spread": 0.05,
+
+  "bankroll": 100.0,
+  "kelly_cap_frac": 0.10,
+  "market_cap_usd": 100.0,
+  "adaptive_sizing": true,
+  "flow_frac": 0.30,
+  "flow_window": 50,
+  "min_clip_usd": 5.0,
+
+  "kill_trailing_n": 100,
+  "kill_min_ev": 0.0,
+  "settle_grace_s": 240.0
+}
