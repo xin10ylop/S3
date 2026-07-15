@@ -18,5 +18,5 @@
 
   "kill_trailing_n": 100,
   "kill_min_ev": 0.0,
-  "settle_grace_s": 240.0
+  "settle_grace_s": 1200.0
 }

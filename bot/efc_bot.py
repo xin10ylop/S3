@@ -63,7 +63,7 @@ class Config:
 
     # ops
     poll_book_ms: int = 400
-    settle_grace_s: float = 240.0        # wait after close for resolution
+    settle_grace_s: float = 1200.0        # winner flag can lag several minutes
     kill_trailing_n: int = 100
     kill_min_ev: float = 0.0             # pause if trailing mean pnl/share < this
     max_clock_skew_s: float = 1.5
