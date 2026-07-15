@@ -209,14 +209,16 @@ class PaperExecutor:
                 if t.get("timestamp", 0) < placed_ts:
                     continue
                 px = float(t["price"])
-                up_px = px if t.get("outcome") == "Up" else 1.0 - px
-                fav_px = up_px if fav == "Up" else 1.0 - up_px
+                # normalize to the favorite token's terms on the 0.001 price grid;
+                # half-tick epsilon so float dirt from mirroring can't misclassify
+                up_px = px if t.get("outcome") == "Up" else round(1.0 - px, 4)
+                fav_px = up_px if fav == "Up" else round(1.0 - up_px, 4)
                 sz = float(t["size"])
-                if fav_px < level - 1e-9:
+                if fav_px < level - 5e-4:
                     take = min(sz, shares - filled)
                     filled += take
                     qual_total += sz
-                elif abs(fav_px - level) <= 1e-9:
+                elif abs(fav_px - level) <= 5e-4:
                     if queue > 0:
                         eat = min(queue, sz)
                         queue -= eat
@@ -368,7 +370,7 @@ class Bot:
             return
         if cfg.band_lo <= mid <= cfg.band_hi:
             fav = "Up"
-            level, queue = up["bid"], up["bid_sz"]
+            level, queue = round(up["bid"], 4), up["bid_sz"]
         elif cfg.band_lo <= 1 - mid <= cfg.band_hi:
             fav = "Down"
             try:
@@ -381,7 +383,7 @@ class Bot:
                 rec["decision"] = "skip_dn_no_bid"
                 self.journal.write(rec)
                 return
-            level, queue = dn["bid"], dn["bid_sz"]
+            level, queue = round(dn["bid"], 4), dn["bid_sz"]
         else:
             rec["decision"] = "no_signal"
             self.journal.write(rec)
