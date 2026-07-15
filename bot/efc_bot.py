@@ -63,6 +63,7 @@ class Config:
 
     # ops
     poll_book_ms: int = 400
+    tape_wait_s: float = 150.0           # paper: indexer catch-up before deciding fills
     settle_grace_s: float = 1200.0        # winner flag can lag several minutes
     kill_trailing_n: int = 100
     kill_min_ev: float = 0.0             # pause if trailing mean pnl/share < this
@@ -162,15 +163,24 @@ class Feed:
                 "min_size": float(b.get("min_order_size", 5)),
                 "raw_ts": b.get("timestamp")}
 
-    def trades(self, condition_id, after_ts):
-        r = self.s.get(f"{DATA_API}/trades",
-                       params={"market": condition_id, "limit": 500}, timeout=8)
-        r.raise_for_status()
-        out = []
-        for t in r.json():
-            if t.get("timestamp", 0) >= after_ts - 1:
-                out.append(t)
-        return out
+    def trades_full(self, condition_id, max_pages=12):
+        """Full tape for a market via pagination (newest first from the API)."""
+        rows, seen = [], set()
+        for off in range(0, max_pages * 500, 500):
+            r = self.s.get(f"{DATA_API}/trades",
+                           params={"market": condition_id, "limit": 500, "offset": off},
+                           timeout=10)
+            r.raise_for_status()
+            page = r.json()
+            for t in page:
+                k = (t.get("transactionHash"), t.get("timestamp"), t.get("price"),
+                     t.get("size"), t.get("outcome"), t.get("side"))
+                if k not in seen:
+                    seen.add(k)
+                    rows.append(t)
+            if len(page) < 500:
+                break
+        return rows
 
     def winner(self, condition_id, slug=None):
         r = self.s.get(f"{CLOB}/markets/{condition_id}", timeout=8)
@@ -194,59 +204,70 @@ class Feed:
 # ----------------------------------------------------------------------------- executors
 class PaperExecutor:
     """Simulates the resting bid against the live public tape, using the SAME
-    conservative rules as the research backtests."""
+    conservative rules as the research backtests.
+
+    The public tape (data-api) is an on-chain indexer that publishes trades with
+    up to ~1 minute of delay, so fills are decided RETROSPECTIVELY: the order's
+    live interval [placement, cancel_at] is fixed by the strategy; once the
+    indexer has caught up we fetch the full paginated tape and replay it."""
 
     def __init__(self, feed, journal):
         self.feed = feed
         self.journal = journal
 
     def run_order(self, mkt, fav, level, queue_shares, shares, cancel_at, cfg):
-        """Poll the tape until cancel_at; return (filled_shares, qualifying_flow_shares)."""
+        """Return (filled_shares, qualifying_flow_shares), decided from the tape
+        once it demonstrably covers the order's live interval."""
         cond = mkt["condition_id"]
         placed_ts = time.time()
-        seen = set()
+        # wait until the indexer should have the whole interval
+        wait_until = cancel_at + cfg.tape_wait_s
+        while time.time() < wait_until:
+            time.sleep(2.0)
+        rows = []
+        for attempt in range(4):
+            try:
+                rows = self.feed.trades_full(cond)
+            except Exception as e:
+                log.warning("tape fetch error: %s", e)
+                rows = []
+            newest = max((t.get("timestamp", 0) for t in rows), default=0)
+            # proof of coverage: a print at/after cancel time, or repeated attempts
+            if newest >= cancel_at - 1:
+                break
+            time.sleep(60)
+        window = [t for t in rows
+                  if placed_ts <= t.get("timestamp", 0) <= cancel_at]
         queue = queue_shares
         filled = 0.0
         qual_total = 0.0
-        while time.time() < cancel_at:
-            time.sleep(1.0)
-            try:
-                trades = self.feed.trades(cond, placed_ts)
-            except Exception as e:
-                log.warning("tape poll error: %s", e)
-                continue
-            for t in sorted(trades, key=lambda x: x.get("timestamp", 0)):
-                key = (t.get("transactionHash"), t.get("timestamp"), t.get("price"),
-                       t.get("size"), t.get("outcome"), t.get("side"))
-                if key in seen:
-                    continue
-                seen.add(key)
-                if t.get("timestamp", 0) < placed_ts:
-                    continue
-                px = float(t["price"])
-                # normalize to the favorite token's terms on the 0.001 price grid;
-                # half-tick epsilon so float dirt from mirroring can't misclassify
-                up_px = px if t.get("outcome") == "Up" else round(1.0 - px, 4)
-                fav_px = up_px if fav == "Up" else round(1.0 - up_px, 4)
-                sz = float(t["size"])
-                if fav_px < level - 5e-4:
-                    take = min(sz, shares - filled)
-                    filled += take
-                    qual_total += sz
-                elif abs(fav_px - level) <= 5e-4:
-                    if queue > 0:
-                        eat = min(queue, sz)
-                        queue -= eat
-                        rest = sz - eat
-                    else:
-                        rest = sz
-                    take = min(rest, shares - filled)
-                    filled += take
-                    qual_total += rest
-                if filled >= shares - 1e-9:
-                    self.journal.write({"type": "fill", "slug": mkt["slug"], "filled": shares,
-                                        "level": level, "mode": "paper"})
-                    return shares, qual_total
+        for t in sorted(window, key=lambda x: x.get("timestamp", 0)):
+            px = float(t["price"])
+            # normalize to the favorite token's terms on the 0.001 price grid;
+            # half-tick epsilon so float dirt from mirroring can't misclassify
+            up_px = px if t.get("outcome") == "Up" else round(1.0 - px, 4)
+            fav_px = up_px if fav == "Up" else round(1.0 - up_px, 4)
+            sz = float(t["size"])
+            if fav_px < level - 5e-4:
+                take = min(sz, shares - filled)
+                filled += take
+                qual_total += sz
+            elif abs(fav_px - level) <= 5e-4:
+                if queue > 0:
+                    eat = min(queue, sz)
+                    queue -= eat
+                    rest = sz - eat
+                else:
+                    rest = sz
+                take = min(rest, shares - filled)
+                filled += take
+                qual_total += rest
+            if filled >= shares - 1e-9:
+                filled = shares
+                break
+        if filled > 0:
+            self.journal.write({"type": "fill", "slug": mkt["slug"], "filled": filled,
+                                "level": level, "tape_rows": len(window), "mode": "paper"})
         return filled, qual_total
 
 
