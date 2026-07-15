@@ -172,13 +172,22 @@ class Feed:
                 out.append(t)
         return out
 
-    def winner(self, condition_id):
+    def winner(self, condition_id, slug=None):
         r = self.s.get(f"{CLOB}/markets/{condition_id}", timeout=8)
         r.raise_for_status()
         m = r.json()
         for tok in m.get("tokens", []):
             if tok.get("winner"):
                 return tok["outcome"]
+        # second source: gamma resolves outcomePrices to "1"/"0" (winner flag can lag >3min)
+        if slug:
+            r = self.s.get(f"{GAMMA}/markets", params={"slug": slug, "closed": "true"}, timeout=8)
+            if r.ok and r.json():
+                g = r.json()[0]
+                prices = json.loads(g.get("outcomePrices", "[]"))
+                outs = json.loads(g.get("outcomes", "[]"))
+                if prices and set(prices) == {"1", "0"}:
+                    return outs[prices.index("1")]
         return None
 
 
@@ -419,11 +428,11 @@ class Bot:
         deadline = close_t + cfg.settle_grace_s
         outcome = None
         while time.time() < deadline:
-            time.sleep(5.0)
-            if time.time() < close_t:
+            time.sleep(10.0)
+            if time.time() < close_t + 20:
                 continue
             try:
-                outcome = self.feed.winner(mkt["condition_id"])
+                outcome = self.feed.winner(mkt["condition_id"], slug=mkt["slug"])
             except Exception:
                 outcome = None
             if outcome:
