@@ -132,6 +132,12 @@ class Feed:
         r.raise_for_status()
         ms = r.json()
         if not ms:
+            # gamma's default slug query omits closed markets (matters after a
+            # restart mid-settle) — retry including them
+            r = self.s.get(f"{GAMMA}/markets", params={"slug": slug, "closed": "true"}, timeout=10)
+            r.raise_for_status()
+            ms = r.json()
+        if not ms:
             return None
         m = ms[0]
         toks = json.loads(m["clobTokenIds"])
