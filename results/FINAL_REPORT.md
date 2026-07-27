@@ -1,99 +1,154 @@
 # Final Report — Polymarket BTC Up/Down Strategy Research
 
-Session date: 2026-07-14. Data: 9 months of Polymarket BTC Up/Down microstructure
-(5m/15m/1h/4h families), Chainlink oracle 1s feed, Binance 1s klines. 48 logged
-experiments (`results/RESULTS.md`), all backtests tick-replayed with honest fills
-(queue-join maker model, bookcurve/size-checked taker fills, real per-epoch fees).
+Concluded 2026-07-27. 80 logged experiments (`results/RESULTS.md`), 9 months of
+microstructure data, 6 days of live paper trading, and a full second research pass
+after the first strategy failed.
 
 ---
 
-## RANKED VIABLE STRATEGIES
+## BOTTOM LINE
 
-### #1 — Early-Favorite Continuation, maker entry ("EFC-M") — FOUND ✅
+**Do not fund anything. No strategy tested clears its costs in the current market.**
 
-**The one strategy that survived every validation attack.**
+Total cost of reaching this conclusion: **$8.79 of paper money, $0 real.**
 
-| | |
-|---|---|
-| Market | Polymarket `btc-updown-5m` (every 5 minutes, 288/day) |
-| Signal | At **open + 60s**, the market's own mid is in **[0.85, 0.97]** for either side (mirrored for Down) |
-| Entry | **Maker**: rest a limit buy on the favorite at the favorite's current best bid; cancel if unfilled by open+90s |
-| Exit | **Hold to settlement** (≈4 min). Winner redeems $1.00, fee-free |
-| Fees | Zero (maker leg + redemption). Fee-proof by construction |
-| Side model | None needed — the market's own price is the signal. Symmetric on Up/Down |
+One thread remains genuinely open (ETH 5m) and needs ~2 more months of data before
+it can be called either way. Everything else is dead, and the reasons are measured
+rather than guessed.
 
-**Out-of-sample record (c/share):**
+---
 
-| Split | Period | EV/share | Win rate | Fills/day |
+## 1. THE ORIGINAL STRATEGY (EFC-M) — DEAD, and now fully explained
+
+**Rules**: on `btc-updown-5m`, at open+60s, if either side is priced 0.85-0.97, rest a
+maker buy at that favorite's best bid, cancel at open+90s, hold fills to settlement.
+
+### The research was correct
+Replaying all **792 historical signals** through the exact order lifetime
+(o60.5→o90, queue join-back) under four escalating queue assumptions:
+
+| Fill assumption | Given-fill EV | Wilson lower bound |
+|---|---|---|
+| Base (real queue) | +4.69¢ | **+2.58¢** |
+| Queue ×2 | +4.47¢ | +2.31¢ |
+| Queue ×5 | +4.33¢ | +2.13¢ |
+| At-level fills disallowed | +4.18¢ | **+1.87¢** |
+
+The edge was real **as executed**, under every assumption. This was not a backtest error.
+
+### What killed it
+| | Historical (n=715 filled) | Current (n=240 filled) |
+|---|---|---|
+| Filled win rate | 93.01% | 86.25% |
+| Entry price | 0.8825 | 0.8723 |
+| Adverse-selection gap | 5.69pp | **11.6pp** |
+| **Filled EV** | **+4.69¢** | **−0.98¢** |
+
+Decline in filled win rate: **z=2.79, p=0.005**. Adverse selection was *always*
+present (p=0.0004 historically) but the edge absorbed it. It has since roughly
+doubled while the price discount narrowed — a 5.67¢ swing.
+
+**The residual edge is structurally untradeable.** Windows where our bid never fills
+still win 97.9% (+10.9¢); windows where it fills win 86.25%. You cannot identify the
+former in advance — they are *defined* by price not coming to you. The taker route is
+also negative: **−0.77¢/share** after fees.
+
+### Two claims I made and retracted
+- **"Market makers deepened books 20× and killed the edge"** — FALSE. A high-power test
+  (n=822) found depth irrelevant: thinnest quartile +4.12¢ vs thickest +4.14¢ (p=0.995);
+  117 historical signals already had 300+ share queues and won 90.6%. My "20×" figure
+  compared a historical *median* to a handful of live observations in the historical *p90*.
+- **"Fills are adversely selected"** — retracted at n=44, then reinstated at n=287
+  (p=0.00015). The retraction was itself underpowered. Both flip-flops came from reading
+  small samples; only the properly-powered measurements should be trusted.
+
+---
+
+## 2. SECOND RESEARCH PASS — every hypothesis tested
+
+| # | Hypothesis | n | Result | Status |
 |---|---|---|---|---|
-| train | 2026-02-12 → 04-15 | +5.59¢ | 93.9% | 7.5 |
-| validation | 2026-04-16 → 04-30 | +2.47¢ | 91.2% | 7.5 |
-| **test (untouched)** | 2026-05-01→05-12 + 07-06/07 | **+3.57¢** | **91.6%** | 9.4 |
-| **July holdout (Telonex, never touched)** | 2026-07-08 → 07-13 | **+3.66¢** | **91.9%** | 10.3 |
+| 1 | **Post-close maker @ 0.99** | 2,507 | +1.00¢/sh, **Wilson lower +0.85¢** — the only candidate whose worst case was profitable | **DEAD on capacity** (below) |
+| 2 | Post-close taker (converged side) | 79 | 79/79 wins, +1.36¢ net | DEAD — fires in only 2.7% of windows; lower bound 95.4% vs 98.6% breakeven; needs ~280 straight wins |
+| 3 | **ETH 5m early-favorite** | 347 | Uncond +4.95¢ (lo +1.74¢); **given fill +2.70¢ (lo −1.51¢)** | **UNPROVEN** — only live thread |
+| 4 | SOL / XRP / DOGE 5m | 136/204/128 | Lower bounds −2.51¢ / −2.93¢ / −1.33¢ | DEAD |
+| 5 | Cross-asset lead-lag (BTC → alts) | 13,298 pairs | Pooled gap +0.584pp, t=1.45, **p=0.146**; alts price themselves at p=0.70 | DEAD |
+| 6 | All 15m variants (every asset) | 1-6 | At open+60s a 15m window is 6.7% elapsed — price never reaches the band | NOT A FINDING — missing data |
+| 7 | Liquidity rewards on crypto up/down | 8,831 markets | **0 have rewards configured** | DEAD (exists on weather/sports/politics: median $0.68/day per $100) |
+| 8 | Price-band sub-restriction | 287 | Every band's Wilson lower bound negative | DEAD |
+| 9 | Book-depth conditioning | 822 | p=0.995 | DEAD (falsified the whole "thinner pond" thesis) |
 
-- Positive **every month** Feb→Jul (worst single split-month +2.4¢; test-July subset +5.8¢).
-- Latency-proof: identical EV at 500ms and 2000ms reaction. Not a race.
-- Both sides symmetric (+3.4¢ up / +4.2¢ dn), all hour-blocks positive, weekends *better* (+5.4¢ vs +3.4¢), 75% of days positive.
-- **Why it exists**: the crowd underreacts to the first decisive move of each window
-  (confirmed independently by a 91k-event study: sharp moves *continue* +0.8-1.0¢, never revert).
-  Favorites at minute 1 are priced ~0.90 when their true win rate is ~0.94.
-  Fills come from early longshot-buyers and profit-takers — measurably NOT informed flow
-  (win-given-fill 91.6% ≈ unconditional 92%; every other maker strategy we tested collapsed on this metric).
-- **Economics per trade**: avg entry ≈ 0.88 → ~4.1% return per filled trade, ~8-9 fills/day.
-- **Capacity**: median $3.5k of qualifying flow crosses the level during the 30s fill window;
-  $100 clips fill fully in 87% of signals. Practical size **$50-100/clip** ($400-900/day deployed).
-  Taker-path capacity decays: +0.38¢ at $200 clips.
-- **Bankroll path (test period, $5 clips reinvested)**: $100 → $128.21 in 14 days (+28.2%), max drawdown −21%.
-  Loss tail: 8.4% of trades lose ~88¢/share — size accordingly; $5-10 clips on $100 keeps ruin risk negligible.
-- **Max drawdown driver**: clustered losses on violent reversal minutes; no skip filter tested removed them without killing EV (vol filters hurt).
+### Why the best candidate died
+The post-close trade was genuinely attractive: after a window closes the outcome is a
+**fact**, yet winners still sell tickets worth $1.00 for 99¢ to get their capital back
+30 seconds early. Post-close flow runs **37,322 SELL vs 9,397 BUY**. The market's own
+convergence identifies the winner 99.576% of the time with no oracle needed.
 
-**Execution playbook**
-1. Subscribe to the 5m market's book (WSS). At `wts+60s` compute mid.
-2. If mid ∈ [0.85, 0.97] (favorite = Up) or mid ∈ [0.03, 0.15] (favorite = Down): place a GTC limit buy on the favorite token at its current best bid, $50-100 notional.
-3. Cancel at `wts+90s` if unfilled (≈9% of signals). Optional taker fallback (still +1.0¢ EV, pays ~0.6¢ fee).
-4. Hold to resolution; redeem. No sell leg, no fee, no race.
+Then the live order book answered it:
 
-### #2 — Early-Favorite Continuation, taker entry ("EFC-T") — fallback only
+| Measurement | Value |
+|---|---|
+| Resting queue at 0.99 post-close | **374,136 shares ($370,395)** |
+| Incoming sell flow per window | 413 shares |
+| Our $100 clip | 101 shares |
+| Windows of flow to clear the queue | **906 (≈75 hours)** |
+| Snapshots where we'd fill | **0 of 125** |
 
-Same signal; cross the spread at open+60s instead of resting. Train +3.84¢ → val +1.48¢ → test +1.01¢ but **July holdout −1.33¢** (BBO-only cost model on holdout data). The taker fee + spread consume the edge in the current regime. Use strictly as an occasional fallback for unfilled maker orders (≈9% of signals), or skip unfilled signals entirely.
-
-### Not ranked — rejected at validation
-- 1h analogue (open+720s favorite): train +4.09¢ but **val −5.03¢** → rejected.
-- Everything else below.
+The 1¢ premium is real and it is **906× oversubscribed**. It is free money, which is
+exactly why a third of a million dollars is already parked in front of us. On the taker
+side the winning token has *no offers at all* — the 2.7% of windows where one appears
+is a latency race we would lose.
 
 ---
 
-## WHAT WAS TESTED AND RULED OUT (48 experiments, full table in RESULTS.md)
+## 3. THE META-LESSON
 
-**Side-selection signals (pre-open):** Binance momentum at 6 horizons — dead (≤50% acc; the crowd already prices it). Pre-open flow imbalance 51.3% acc — real, too small. Book imbalance — weakly anti-informative. Previous-outcome reversal (P(repeat)=0.477 on 15m, 5σ) — real, too small to cross costs. Hour-of-day — dead. ML ensemble (GBM, walk-forward): 52.3% acc / AUC 0.534 — taker-dead; maker version +1.1¢ but regime-unstable (April-driven). Pre-open price itself is the best predictor (52.3% acc) and correctly calibrated mid-range.
+Every single edge found in this project was real, and every one lived in the part of
+the distribution that cannot be transacted:
 
-**Pre-open trading:** the user's manual scalp shape (buy 51¢ → sell 55¢, abort) replayed on all 18k train windows: **−1.3¢/trade** — aborts (−19¢ avg) overwhelm +4¢ targets. Two-sided 48/48 straddle: −2.0¢. Pre-open tails (mid>0.56) are genuinely underpriced +2-3¢ raw but month-unstable and fee-eaten. Selectivity (ML-gated maker entries) reaches +1.1¢ but April-dependent → not FOUND.
+- Favorites that **don't fill** win 97.9%; the ones that fill win 86.25%.
+- Post-close 99¢ tickets are a certainty — behind a **$370k queue**.
+- Alt-asset markets have thin books and no mispricing to go with them.
 
-**Late-window / settlement:** snapshot "edges" of +3-15¢ on near-certain sides at close−120..−2s across all families are **fill mirages** — honest replay: 15m all-leads negative, 1h inconsistent, 5m only positive at lead≤2s with <1s latency (colocation race, rejected by realism rule). Late maker bids on the certain side: fills arrive exactly when the outcome flips (win-given-fill ≈ price). Settlement window: books converge; nothing executable.
+That is not bad luck. **It is what an efficient market looks like from the inside.**
+Prices are inefficient exactly where you cannot reach them, and efficient exactly where
+you can. Any backtest on this venue that does not model queue position and fill
+selection with hostility will produce a large, entirely fictitious edge — mine did, at
+t=6.45, and it survived four validation gates before live paper trading exposed it.
 
-**Oracle/model edges:** resolution rule pinned (last Chainlink tick ≤ boundary; 2/38.7k irreducible mismatches). Chainlink−Binance basis (−$18±13) modeled explicitly: contested-zone oracle model −1 to −9¢ everywhere beyond lead 3s. Model-market divergence buyer (model ≥0.90 vs mid ≤0.82): **−1.6¢, win 74% vs claimed 90%** — the market beats every model we built; its only exploitable flaw is the early-favorite discount (#1).
-
-**Cross-market:** 5m↔15m same-close partial-order violations exist (~1% of ticks, ~2¢) — true arb, but two taker legs + racing make it unprofitable at our scale.
-
-**Microstructure:** sharp-move fade (H15/H27): moves *continue* (+0.8¢ at 10-60s, 91k events) — fade dead, and continuation < round-trip cost. Thin-book fade: subsumed (same result). 15m/4h favorite analogues: 15m flat/negative; 4h untestable (14 signals in 5 months).
-
-**Families:** 15m — most bot-efficient, nothing survived. 1h — negative/inconsistent everywhere tested. 4h — too few windows for any conclusion at these signal rates.
-
-**Context:** maker-rebate pool ≈ $48k/day (5m) + $10k/day (15m) — the professional game on these markets is high-frequency market-making farming spread+rebate; that is not accessible to a $100 bankroll, but explains why naive taker edges are arbitraged out within seconds.
+**The specific methodological failure to carry forward:** a fill model that asks "did
+trades occur at my price?" instead of "would trades have reached *me* at my place in
+the queue?" The first question flatters every maker strategy. The second is the only
+one that matters.
 
 ---
 
-## VALIDATION ATTACKS APPLIED TO #1 (all passed)
-1. Chronological splits; config locked on train; val used once; test untouched until final gate.
-2. Latency 0.5s → 2s: EV unchanged (not a race).
-3. Band/timing perturbation: positive plateau o45-o75; decays smoothly (o120 +0.4¢, o180 −0.7¢) — mechanistic, not a grid artifact.
-4. Fee schedule: maker pays zero (fee-epoch-proof); taker variant charged per-window historical rate.
-5. Fill honesty: maker requires tape prints through the level beyond the displayed queue (join-back); win-given-fill ≈ unconditional (no adverse selection).
-6. Stale-quote artifacts: engine rejects stale BBO (2s) and unsized quotes; bookcurves used at 250ms grid.
-7. Concentration: no month, day, side, or hour-block carries the result; 75% of days positive.
-8. Second holdout: 7 fresh days pulled from an independent vendor (Telonex) after the test gate — see addendum.
+## 4. RECOMMENDATION
 
-## LIMITATIONS
-- 5m data gap 2026-05-13 → 07-05 (collector outage): test = 12 days May + 2 days July + 7 Telonex July days.
-- Backtest cannot model our own presence in the book (others may re-price around a persistent $100 bid at o60). Start at $5-20 clips and scale on live fill/win telemetry.
-- The edge is a behavioral bias, not a law: monitor monthly EV; kill switch at trailing-200-trade EV < 0.
+**Fund nothing today.** No strategy has a positive lower bound *and* accessible capacity.
+
+**The one live thread — ETH 5m.** Unconditional +4.95¢ (lower bound +1.74¢) is real, but
+the tradeable given-fill figure is +2.70¢ with a lower bound of −1.51¢, and it shows the
+same adverse-selection signature as BTC (filled 90.6% vs unfilled 98.9%, z=3.90).
+Resolving it needs ~470 filled trades ≈ **2 months** of paper data. It costs nothing to
+collect: point the existing bot at ETH in paper mode and check monthly. Do not fund it
+before the given-fill lower bound clears zero.
+
+**If you want to keep hunting**, the honest ranking of what is left:
+1. **Non-crypto liquidity rewards** — the only measured, *structurally accessible* income
+   found (rewards are actually configured there, unlike crypto). Median $0.68/day per $100
+   deployed, best-case $20.91/day. Requires modeling adverse selection, which was not done.
+2. **Longer-duration markets with correct signal timing** — the 15m/1h failures were an
+   artifact of reusing a 60-second offset built for 5m windows. A properly re-derived
+   signal time (e.g. 20% into the window) has never actually been tested.
+3. Everything else in this venue is exhausted.
+
+**If you want my actual opinion:** this venue is efficiently priced at retail scale.
+Two weeks of systematic work found one genuine historical edge that decayed, and one
+genuine current edge that is 906× oversubscribed. That is a market working correctly.
+The professional participants here are earning spread and rebates at size with
+infrastructure a $100 account cannot replicate. I would stop trading this venue and
+apply the same methodology — hostile fill modeling, Wilson lower bounds, paper-first
+validation — somewhere less contested.
+
+The process worked. It cost $8.79 to learn all of this instead of $100.
