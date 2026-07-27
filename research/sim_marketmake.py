@@ -95,16 +95,18 @@ def one(wts):
                 if ts - last_q >= REQUOTE:      # requote around the current price
                     bid, ask = round(px - h, 4), round(px + h, 4)
                     last_q = ts
-                if bid is None:
-                    continue
                 need = 2.0 if pess else 1.0     # pessimistic: 2x our size must print
                 qty = CLIP / max(px, 0.01)
-                if side == "SELL" and px <= bid + 1e-9 and sz >= need * qty:
+                # each side is checked independently; a filled side stays down
+                # until the next requote (one fill per quote cycle per side)
+                if (side == "SELL" and bid is not None
+                        and px <= bid + 1e-9 and sz >= need * qty):
                     inv += qty
                     cash -= qty * bid
                     fills_b += 1
-                    bid = None                   # one fill per quote cycle
-                elif side == "BUY" and px >= ask - 1e-9 and sz >= need * qty:
+                    bid = None
+                elif (side == "BUY" and ask is not None
+                        and px >= ask - 1e-9 and sz >= need * qty):
                     inv -= qty
                     cash += qty * ask
                     fills_a += 1
